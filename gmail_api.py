@@ -5,7 +5,7 @@ import os.path
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
+from google_auth_oauthlib.flow import Flow, InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
@@ -19,11 +19,51 @@ SCOPES = ['https://www.googleapis.com/auth/gmail.readonly',
 
 
 class GmailAPI:
-    def __init__(self, reauthenticate=True):
-        self.service = self.authenticate_user(reauthenticate)
+    def __init__(self, client_id, client_secret, redirect_uri_port):
+        self.client_id = client_id
+        self.client_secret = client_secret
+        self.redirect_uri_port = redirect_uri_port
 
-    @staticmethod
-    def authenticate_user(reauthenticate):
+        self.flow = self.create_flow()
+
+        # self.service = self.authenticate_user(client_id, client_secret, redirect_uri_port, reauthenticate=reauthenticate)
+
+    def create_flow(self):
+        flow = Flow.from_client_config(
+            client_config={
+                "installed": {
+                    "client_id": self.client_id,
+                    "client_secret": self.client_secret,
+                    "redirect_uris": [f"http://localhost:{self.redirect_uri_port}"],
+                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                    "token_uri": "https://oauth2.googleapis.com/token",
+                    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs"
+                }
+            },
+            scopes=SCOPES,
+            redirect_uri = f"http://localhost:{self.redirect_uri_port}"
+        )
+
+        return flow
+
+    def get_authentication_url(self):
+        """Get the URL for the OAuth2 flow."""
+        return self.flow.authorization_url()[0]
+
+    def get_access_token(self, code):
+        """Get the access token from the OAuth2 flow."""
+        return self.flow.fetch_token(code=code)
+
+    def get_credentials(self, code):
+        """Get the credentials from the OAuth2 flow."""
+        _ = self.flow.fetch_token(code=code)
+
+        return self.flow.credentials
+
+    def build_service(self, code):
+        self.service = build('gmail', 'v1', credentials=self.get_credentials(code))
+
+    def authenticate_user_desktop(self, reauthenticate=True):
         """Shows basic usage of the Gmail API.
         """
         creds = None
@@ -39,8 +79,26 @@ class GmailAPI:
             if creds and creds.expired and creds.refresh_token:
                 creds.refresh(Request())
             else:
-                flow = InstalledAppFlow.from_client_secrets_file(
-                    'credentials.json', SCOPES)
+                # flow = InstalledAppFlow.from_client_secrets_file(
+                #     'credentials.json', SCOPES)
+                # creds = flow.run_local_server(port=0)
+                # Create OAuth2 flow
+                flow = InstalledAppFlow.from_client_config(
+                    client_config={
+                        "installed": {
+                            "client_id": self.client_id,
+                            "client_secret": self.client_secret,
+                            "redirect_uris": [f"http://localhost:{self.redirect_uri_port}"],
+                            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                            "token_uri": "https://oauth2.googleapis.com/token",
+                            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs"
+                        }
+                    },
+                    scopes=SCOPES,
+                    redirect_uri = f"http://localhost:{self.redirect_uri_port}"
+                )
+
+                # Run local server for OAuth2 flow
                 creds = flow.run_local_server(port=0)
 
             # Save the credentials for the next run
@@ -50,7 +108,8 @@ class GmailAPI:
         try:
             # Call the Gmail API
             service = build('gmail', 'v1', credentials=creds)
-            
+            self.service = service
+
             return service
 
         except HttpError as error:
